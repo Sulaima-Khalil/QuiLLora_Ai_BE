@@ -1,6 +1,6 @@
-import User from "../models/User.model.js";
+import User from "../module/UserModule.js";
 import Article from "../module/ArticleModel.js";
-import { calculateReadTime } from "../utils/readTime.js";
+import { calculateReadTime } from "../../utils/readTime.js";
 
 /* =================
   1. Get User Profile

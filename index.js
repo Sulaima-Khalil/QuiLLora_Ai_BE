@@ -1,4 +1,3 @@
-
 import dotenv from "dotenv";
 import app from "./App.js";
 import connectDB from "./components/config/Db.js";
@@ -22,4 +21,3 @@ const startServer = async () => {
 };
 
 startServer();
-

@@ -8,7 +8,7 @@ import {
   changeArticleStatus,
   getArticlesByCategory,
 } from "../controller/ArticleController.js";
-import { uploadArticleImage } from '../utils/upload.js'
+import { uploadArticleImage } from '../middleware/upload.js'
 const articleRouter = express.Router();
 
 articleRouter.post("/create", createArticle);
