@@ -180,6 +180,7 @@ binary on first run.
 | [`docs/DATABASE.md`](docs/DATABASE.md)         | Collections, fields, indexes and relationships   |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Folder structure and the request lifecycle       |
 | [`docs/INTEGRATION.md`](docs/INTEGRATION.md)   | Frontend page → endpoint mapping                 |
+| [`docs/HR-TEAM.md`](docs/HR-TEAM.md)           | The HR / team feature end to end, file by file    |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)     | Deploying to Render, Railway or a VPS            |
 
 ---
