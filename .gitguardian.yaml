@@ -1,0 +1,31 @@
+# GitGuardian / ggshield configuration.
+#
+# Scanners cannot distinguish a leaked credential from a fixture, and a check
+# that cries wolf is a check people learn to ignore. Everything suppressed
+# here is deliberate and documented; nothing below grants access to any real
+# system. Real secrets live only in `.env`, which is git-ignored.
+
+version: 2
+
+secret:
+  ignored-paths:
+    # Fixture credentials are generated per run in tests/helpers.js
+    # (PASSWORDS / CODES) and only ever reach an in-memory MongoDB that is
+    # destroyed when the suite ends.
+    - tests/**
+
+    # Request and response examples. Passwords in these are placeholders such
+    # as <your-password>; no example pairs a real address with a real secret.
+    - docs/**
+
+  ignored-matches:
+    # The seeded demo account. This is intentionally public: `npm run seed`
+    # creates it on a local database, the README documents it so the app is
+    # usable immediately, and the frontend's login form pre-fills it. It is
+    # not valid against any deployed environment.
+    - name: Seeded local demo account password
+      match: demo1234
+
+  # Fail the check on anything not listed above.
+  minimum-severity: LOW
+  show-secrets: false
