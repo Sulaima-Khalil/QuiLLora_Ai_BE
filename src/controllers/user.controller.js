@@ -1,7 +1,7 @@
 import userService from '../services/user.service.js';
 import tokenService from '../services/token.service.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { sendSuccess } from '../utils/ApiResponse.js';
+import { sendPaginated, sendSuccess } from '../utils/ApiResponse.js';
 import { toPublicUrl } from '../middlewares/upload.middleware.js';
 
 export const getProfile = asyncHandler(async (req, res) => {
@@ -24,6 +24,20 @@ export const getSettings = asyncHandler(async (req, res) => {
 export const updateSettings = asyncHandler(async (req, res) => {
   const settings = await userService.updateSettings(req.user._id, req.body);
   return sendSuccess(res, { message: 'Settings updated', data: { settings } });
+});
+
+/** GET /users/search — people results for the global search bar. */
+export const searchUsers = asyncHandler(async (req, res) => {
+  const { search, page, limit } = req.validatedQuery ?? req.query ?? {};
+  const result = await userService.searchUsers(search, { page, limit });
+
+  return sendPaginated(res, {
+    message: 'People',
+    data: result.people,
+    page: result.page,
+    limit: result.limit,
+    total: result.total,
+  });
 });
 
 /** GET /users/:identifier — public author page (id or username). */
@@ -51,5 +65,6 @@ export default {
   getSettings,
   updateSettings,
   getPublicProfile,
+  searchUsers,
   deleteAccount,
 };

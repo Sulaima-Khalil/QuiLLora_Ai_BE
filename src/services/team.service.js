@@ -5,6 +5,7 @@ import logger from '../utils/logger.js';
 import { serializeTeamMember } from '../utils/serializers.js';
 import { stripTags } from '../helpers/sanitizeHtml.helper.js';
 import mailer from '../emails/mailer.js';
+import billingService from './billing.service.js';
 
 /**
  * Workspace membership — the backend for teamStore.js.
@@ -38,6 +39,11 @@ export const inviteMember = async (owner, { name, email, role }) => {
 
   const existing = await teamRepository.findByEmailForWorkspace(cleanEmail, owner._id);
   if (existing) throw ApiError.conflict('That person is already a member of this workspace');
+
+  // Checked after the duplicate guard — re-inviting someone already in the
+  // workspace is a conflict, not a seat problem — and before the row is
+  // created, so a refused invite adds no member and sends no email.
+  await billingService.assertWithinLimit(owner._id, 'teamMembers');
 
   // Link the row to an existing account immediately, so the invite lands as
   // an active membership rather than waiting for a registration that already happened.

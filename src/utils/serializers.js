@@ -7,7 +7,13 @@
  * React components need no changes when the localStorage stores are swapped
  * for HTTP calls.
  */
-import { ARTICLE_STATUS, READER_TYPES } from '../constants/index.js';
+import {
+  ARTICLE_STATUS,
+  BILLING_CYCLE,
+  DEFAULT_PLAN_ID,
+  READER_TYPES,
+  SUBSCRIPTION_STATUS,
+} from '../constants/index.js';
 import { formatArticleDate, formatMonthYear } from './date.js';
 import { formatReadingTime } from './readTime.js';
 
@@ -223,10 +229,35 @@ export const serializeTeamMember = (member) => {
   };
 };
 
+/**
+ * Subscription shape for the client.
+ *
+ * Allow-listed rather than spread: the subdocument also carries provider
+ * customer and subscription ids, which are nobody's business but the server's.
+ */
+export const serializeSubscription = (subscription) => {
+  const source =
+    typeof subscription?.toObject === 'function' ? subscription.toObject() : subscription ?? {};
+
+  return {
+    planId: source.planId ?? DEFAULT_PLAN_ID,
+    status: source.status ?? SUBSCRIPTION_STATUS.ACTIVE,
+    cycle: source.cycle ?? BILLING_CYCLE.MONTHLY,
+    startedAt: source.startedAt ?? null,
+    currentPeriodEnd: source.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: source.cancelAtPeriodEnd ?? false,
+    pendingPlanId: source.pendingPlanId ?? null,
+    pendingCycle: source.pendingCycle ?? null,
+    pendingSince: source.pendingSince ?? null,
+    provider: source.provider ?? null,
+  };
+};
+
 export default {
   serializeArticle,
   serializeArticles,
   serializeUser,
   serializeCollection,
   serializeTeamMember,
+  serializeSubscription,
 };

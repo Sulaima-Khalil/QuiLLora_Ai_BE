@@ -20,6 +20,29 @@ process.env.ENABLE_CRON = 'false';
 process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.SERVE_UPLOADS = 'false';
 
+/*
+ * Safepay, wired up against nothing.
+ *
+ * The credentials are real in shape and fake in value, and no suite reaches
+ * the network: the two calls that would — opening a checkout and cancelling a
+ * subscription — are stubbed per test on the service's default export.
+ *
+ * The webhook secret is deliberately *not* stubbed. Signature verification
+ * runs for real against these bytes, so the tests prove the HMAC rather than
+ * a mock of it. Values are generated per run and read back from `config`, so
+ * no test repeats a literal and no secret scanner has one to flag.
+ */
+const { randomBytes: randomSecret } = await import('node:crypto');
+
+process.env.SAFEPAY_ENVIRONMENT = 'sandbox';
+process.env.SAFEPAY_API_KEY = `sec_${randomSecret(8).toString('hex')}`;
+process.env.SAFEPAY_V1_SECRET = randomSecret(24).toString('hex');
+process.env.SAFEPAY_WEBHOOK_SECRET = randomSecret(24).toString('hex');
+process.env.SAFEPAY_PLAN_PRO_MONTHLY = 'plan_test-pro-monthly';
+process.env.SAFEPAY_PLAN_PRO_YEARLY = 'plan_test-pro-yearly';
+process.env.SAFEPAY_PLAN_BUSINESS_MONTHLY = 'plan_test-business-monthly';
+process.env.SAFEPAY_PLAN_BUSINESS_YEARLY = 'plan_test-business-yearly';
+
 const { MongoMemoryServer } = await import('mongodb-memory-server');
 const mongoose = (await import('mongoose')).default;
 

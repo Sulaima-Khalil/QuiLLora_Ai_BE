@@ -82,8 +82,27 @@ export const toggleBookmark = async (userId, articleId) => {
   return { ...(await getState(userId)), bookmarked: !isBookmarked };
 };
 
-export const listCollections = async (userId) => {
-  const collections = await collectionRepository.findAllByOwner(userId);
+/**
+ * The caller's collections, optionally narrowed by a free-text query.
+ *
+ * `search` is additive: without it the endpoint behaves exactly as before, so
+ * the Collections page is unaffected. Regex over name and description matches
+ * how articles are searched; the input is escaped so no user text reaches the
+ * engine as regex metacharacters.
+ */
+export const listCollections = async (userId, { search } = {}) => {
+  const term = stripTags(String(search ?? '')).trim();
+
+  const pattern =
+    term.length >= 2
+      ? new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      : undefined;
+
+  // A one-character query would match nearly everything; treat it as no query
+  // rather than returning a near-complete list as if it were a result set.
+  if (search !== undefined && !pattern) return [];
+
+  const collections = await collectionRepository.findAllByOwner(userId, { search: pattern });
   return collections.map((collection) => serializeCollection(collection));
 };
 

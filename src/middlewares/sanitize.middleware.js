@@ -11,7 +11,18 @@
  */
 
 const isPlainObject = (value) =>
-  typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date);
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value) &&
+  !(value instanceof Date) &&
+  /*
+   * A Buffer passes every check above — it is a non-null, non-array object —
+   * and scrubbing one rebuilds it as a plain object of byte indices, which
+   * destroys it. That matters for the raw webhook body: the exact bytes a
+   * provider signature covers would silently become `{"0":123,…}` before any
+   * handler ever saw them.
+   */
+  !Buffer.isBuffer(value);
 
 /** Recursively removes dangerous keys. Returns a new value; never mutates. */
 const scrub = (value, removedKeys, depth = 0) => {

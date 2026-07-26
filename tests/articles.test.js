@@ -112,6 +112,7 @@ describe('Articles', () => {
     it('paginates with accurate metadata', async () => {
       const { accessToken } = await registerUser();
 
+      // Five drafts: the free plan limits published articles, not drafts.
       for (let index = 0; index < 5; index += 1) {
         await createArticle(accessToken, { title: `Article ${index}` });
       }

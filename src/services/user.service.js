@@ -128,6 +128,47 @@ export const getPublicProfile = async (identifier, viewerId = null) => {
 };
 
 /**
+ * People results for the global search bar.
+ *
+ * Returns the public author shape with every private field stripped: a search
+ * result must never leak an address or account internals, and unlike
+ * `getPublicProfile` there is no "is this me" case that would widen it.
+ */
+export const searchUsers = async (query, { page = 1, limit = 12 } = {}) => {
+  const term = stripTags(String(query ?? '')).trim();
+
+  // Below two characters a regex matches most of the table; that is a scan,
+  // not a search, so the endpoint answers empty rather than working hard.
+  if (term.length < 2) return { people: [], page, limit, total: 0 };
+
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(escaped, 'i');
+
+  const { items, total } = await userRepository.searchActive({
+    pattern,
+    skip: (page - 1) * limit,
+    limit,
+  });
+
+  const people = items.map((user) => {
+    const profile = serializeUser(user);
+
+    delete profile.email;
+    delete profile.settings;
+    delete profile.newsletterOptIn;
+    delete profile.linkedProviders;
+    delete profile.hasPassword;
+    delete profile.isEmailVerified;
+    delete profile.authProvider;
+    delete profile.lastLoginAt;
+
+    return profile;
+  });
+
+  return { people, page, limit, total };
+};
+
+/**
  * Permanently deletes the account and everything it owns.
  *
  * Ordered so nothing is orphaned if a later step fails: dependent records
@@ -170,5 +211,6 @@ export default {
   updateProfile,
   updateSettings,
   getPublicProfile,
+  searchUsers,
   deleteAccount,
 };
