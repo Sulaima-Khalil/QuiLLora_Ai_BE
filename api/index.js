@@ -1,4 +1,5 @@
 import app from '../src/app.js';
+import config from '../src/config/env.js';
 import { connectDatabase } from '../src/database/connect.js';
 import logger from '../src/utils/logger.js';
 
@@ -39,13 +40,37 @@ const ensureDatabase = async () => {
 const redact = (message = '') =>
   message.replace(/(mongodb(?:\+srv)?:\/\/)[^@/\s]*@/gi, '$1<credentials>@');
 
+/**
+ * Mirrors the `cors()` allow-list onto a response that never reaches Express.
+ *
+ * Without these headers a browser cannot read the body at all and reports the
+ * request as a network failure — so a database outage would surface in the UI
+ * as "can't reach the server" rather than the actual 503 message.
+ */
+const applyCorsHeaders = (req, res) => {
+  const origin = req.headers?.origin;
+  if (!origin || !config.client.corsOrigins.includes(origin)) return;
+
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
+};
+
 export default async function handler(req, res) {
+  // A preflight asks only what the server permits, so it must be answerable
+  // while the database is unreachable. Express' cors() replies on its own.
+  if (req.method === 'OPTIONS') {
+    app(req, res);
+    return;
+  }
+
   try {
     await ensureDatabase();
   } catch (error) {
     // A dead database must not surface as an opaque platform error.
     logger.error(`Serverless database connection failed: ${error.message}`);
 
+    applyCorsHeaders(req, res);
     res.statusCode = 503;
     res.setHeader('Content-Type', 'application/json');
     res.end(
