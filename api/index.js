@@ -30,6 +30,15 @@ const ensureDatabase = async () => {
   await connectDatabase();
 };
 
+/**
+ * Strips `user:password@` out of anything before it reaches a response body.
+ *
+ * Driver errors quote the connection string on a malformed URI, so the message
+ * cannot be echoed to a caller as-is.
+ */
+const redact = (message = '') =>
+  message.replace(/(mongodb(?:\+srv)?:\/\/)[^@/\s]*@/gi, '$1<credentials>@');
+
 export default async function handler(req, res) {
   try {
     await ensureDatabase();
@@ -43,6 +52,12 @@ export default async function handler(req, res) {
       JSON.stringify({
         success: false,
         message: 'Service temporarily unavailable: database connection failed',
+        // `error` names the failure mode — MongooseServerSelectionError points
+        // at the network path (IP allow-list, paused cluster, stale hostnames),
+        // MongoServerError at credentials. Without it every diagnosis is a
+        // guess. Drop these two fields once the connection is healthy.
+        error: error.name,
+        reason: redact(error.message),
       }),
     );
     return;
