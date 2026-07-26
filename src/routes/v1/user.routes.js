@@ -6,6 +6,7 @@ import { uploadAvatar } from '../../middlewares/upload.middleware.js';
 import {
   deleteAccountSchema,
   publicProfileSchema,
+  searchUsersSchema,
   updateProfileSchema,
   updateSettingsSchema,
 } from '../../validators/user.validator.js';
@@ -45,7 +46,16 @@ router.put('/me/settings', authenticate, validate(updateSettingsSchema), userCon
 
 /* ---------------------------------------------------------------------------
  * Public author profiles
+ *
+ * `/search` is declared before `/:identifier` so it is not read as a username.
  * ------------------------------------------------------------------------ */
+
+router.get(
+  '/search',
+  optionalAuthenticate,
+  validate(searchUsersSchema),
+  userController.searchUsers,
+);
 
 router.get(
   '/:identifier',

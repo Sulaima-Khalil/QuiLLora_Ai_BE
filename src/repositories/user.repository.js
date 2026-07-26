@@ -48,6 +48,40 @@ export const findByActiveToken = (tokenField, expiresField, tokenHash) =>
     .select(`+${tokenField} +${expiresField} +password +passwordChangedAt +passwordResetCode +passwordResetCodeAttempts`)
     .exec();
 
+/**
+ * Finds the account bound to a provider subscription id.
+ *
+ * Scoped by provider as well as id so two providers cannot collide on an
+ * opaque token — the same reason the WebhookEvent index is compound.
+ */
+export const findBySubscriptionId = (providerSubscriptionId, { provider, select } = {}) => {
+  const query = User.findOne({
+    'subscription.provider': provider,
+    'subscription.providerSubscriptionId': String(providerSubscriptionId),
+  });
+  if (select) query.select(select);
+  return query.exec();
+};
+
+/**
+ * Finds an account whose open checkout intent matches a provider event.
+ *
+ * Every clause is a condition of the claim rather than a filter for
+ * convenience — see `claimPendingCheckout` in billing.service.js for why each
+ * one is here. `pendingProviderPlanId` holds the resolved provider token, not
+ * our own plan id, so nothing a request body could have named reaches this
+ * query.
+ */
+export const findClaimablePendingCheckout = ({ providerPlanId, email, since, select }) => {
+  const query = User.findOne({
+    email: normalizeEmail(email),
+    'subscription.pendingProviderPlanId': String(providerPlanId),
+    'subscription.pendingSince': { $gte: since },
+  });
+  if (select) query.select(select);
+  return query.exec();
+};
+
 /** Finds a user by a linked OAuth identity. */
 export const findByOAuthAccount = (provider, providerAccountId) =>
   User.findOne({
@@ -75,8 +109,31 @@ export const getBookmarkIds = async (userId) => {
 
 export const deleteById = (id) => User.findByIdAndDelete(id).exec();
 
+/**
+ * People search for the global search bar.
+ *
+ * Regex rather than $text, matching how articles are searched, so partial
+ * words hit the way a search control expects. The caller escapes the input, so
+ * no user text reaches the engine as regex metacharacters. Deactivated
+ * accounts are never returned.
+ */
+export const searchActive = async ({ pattern, skip = 0, limit = 12 }) => {
+  const filter = {
+    isActive: true,
+    $or: [{ name: pattern }, { username: pattern }, { role: pattern }],
+  };
+
+  const [items, total] = await Promise.all([
+    User.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean({ virtuals: true }).exec(),
+    User.countDocuments(filter).exec(),
+  ]);
+
+  return { items, total };
+};
+
 export default {
   findById,
+  searchActive,
   findByEmail,
   findByUsername,
   findByEmailWithPassword,
@@ -85,6 +142,8 @@ export default {
   existsByUsername,
   create,
   findByActiveToken,
+  findBySubscriptionId,
+  findClaimablePendingCheckout,
   findByOAuthAccount,
   updateById,
   addBookmark,

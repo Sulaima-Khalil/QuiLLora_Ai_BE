@@ -8,6 +8,7 @@ import {
   collectionArticleSchema,
   collectionIdSchema,
   createCollectionSchema,
+  listCollectionsSchema,
   toggleBookmarkSchema,
   updateCollectionSchema,
 } from '../../validators/collection.validator.js';
@@ -30,7 +31,7 @@ router.post('/bookmarks/:articleId', validate(bookmarkParamSchema), collectionCo
  * Named collections
  * ------------------------------------------------------------------------ */
 
-router.get('/', collectionController.listCollections);
+router.get('/', validate(listCollectionsSchema), collectionController.listCollections);
 router.post('/', validate(createCollectionSchema), collectionController.createCollection);
 
 router.get('/:id', validate(collectionIdSchema), collectionController.getCollection);

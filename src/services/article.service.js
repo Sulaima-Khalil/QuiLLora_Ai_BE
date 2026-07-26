@@ -16,6 +16,7 @@ import { uniqueSlug } from '../utils/slugify.js';
 import { buildExcerpt } from '../utils/readTime.js';
 import { sanitizeArticleHtml, stripTags } from '../helpers/sanitizeHtml.helper.js';
 import { removeUpload } from '../middlewares/upload.middleware.js';
+import billingService from './billing.service.js';
 
 /** Throws unless the article exists and belongs to the caller. */
 const loadOwnedArticle = async (articleId, userId, { withNotes = false } = {}) => {
@@ -28,6 +29,23 @@ const loadOwnedArticle = async (articleId, userId, { withNotes = false } = {}) =
   }
 
   return article;
+};
+
+/**
+ * Refuses a transition into Published that would exceed the plan's allowance.
+ *
+ * Called by every path that can publish — create, update, the status toggle
+ * and restore — always before the document is saved, so a refusal changes
+ * nothing. `from` is the status the article is leaving; an article that is
+ * already Published is re-saved freely, since it occupies a slot it has
+ * already been counted for.
+ *
+ * Drafts and archived articles are never checked: the plan rations published
+ * work, not work in progress.
+ */
+const assertCanPublish = async (userId, { from = null } = {}) => {
+  if (from === ARTICLE_STATUS.PUBLISHED) return;
+  await billingService.assertWithinLimit(userId, 'publishedArticles');
 };
 
 /** Normalises author-supplied text fields. */
@@ -118,6 +136,13 @@ export const createArticle = async (userId, payload, file = null) => {
   const author = await userRepository.findById(userId);
   if (!author) throw ApiError.notFound('Author not found');
 
+  const status = payload.status ?? ARTICLE_STATUS.DRAFT;
+
+  // Publishing straight from the editor is a publication like any other.
+  // Creating a draft is not limited, so it is not checked. Either way this
+  // runs before a slug is reserved or a document written.
+  if (status === ARTICLE_STATUS.PUBLISHED) await assertCanPublish(userId);
+
   const title = stripTags(payload.title) || 'Untitled Article';
   const content = sanitizeArticleHtml(payload.content);
   const tags = cleanTags(payload.tags);
@@ -136,7 +161,7 @@ export const createArticle = async (userId, payload, file = null) => {
     tags,
     author: author._id,
     authorName: author.name,
-    status: payload.status ?? ARTICLE_STATUS.DRAFT,
+    status,
     visibility: payload.visibility ?? ARTICLE_VISIBILITY.PUBLIC,
     allowComments: payload.allowComments ?? true,
     coverImage: file?.publicUrl ?? payload.coverImage ?? '',
@@ -152,6 +177,12 @@ export const createArticle = async (userId, payload, file = null) => {
 /** Updates an article the caller owns. */
 export const updateArticle = async (userId, articleId, payload, file = null) => {
   const article = await loadOwnedArticle(articleId, userId, { withNotes: true });
+
+  // Checked up front, before any field is touched, so a refused publish does
+  // not leave a half-applied edit in memory.
+  if (payload.status === ARTICLE_STATUS.PUBLISHED && article.status !== ARTICLE_STATUS.PUBLISHED) {
+    await assertCanPublish(userId, { from: article.status });
+  }
 
   if (payload.title !== undefined) {
     const title = stripTags(payload.title) || 'Untitled Article';
@@ -214,6 +245,10 @@ export const updateArticle = async (userId, articleId, payload, file = null) => 
 export const changeStatus = async (userId, articleId, status) => {
   const article = await loadOwnedArticle(articleId, userId);
 
+  if (status === ARTICLE_STATUS.PUBLISHED) {
+    await assertCanPublish(userId, { from: article.status });
+  }
+
   if (status === ARTICLE_STATUS.ARCHIVED) {
     article.previousStatus = article.status;
   }
@@ -236,7 +271,14 @@ export const restoreArticle = async (userId, articleId) => {
     throw ApiError.badRequest('Only archived articles can be restored');
   }
 
-  article.status = article.previousStatus ?? ARTICLE_STATUS.DRAFT;
+  // Restoring is an indirect publication: an article archived while published
+  // comes back published, and that has to clear the same bar.
+  const restoredStatus = article.previousStatus ?? ARTICLE_STATUS.DRAFT;
+  if (restoredStatus === ARTICLE_STATUS.PUBLISHED) {
+    await assertCanPublish(userId, { from: article.status });
+  }
+
+  article.status = restoredStatus;
   article.previousStatus = undefined;
   article.archivedAt = undefined;
   await article.save();

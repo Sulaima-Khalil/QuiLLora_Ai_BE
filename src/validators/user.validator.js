@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TONES } from '../constants/index.js';
-import { booleanish, objectId } from './common.validator.js';
+import { booleanish, objectId, paginationQuery } from './common.validator.js';
 
 /** Profile and settings schemas — fields match Profile.jsx and Setting.jsx. */
 
@@ -45,6 +45,19 @@ export const publicProfileSchema = {
   params: z.object({ identifier: z.string().trim().min(1).max(60) }),
 };
 
+/**
+ * GET /users/search — people results for the global search bar.
+ *
+ * A single character would match most of the table and is not a search, so
+ * `search` is required and floored at two characters. Everything else follows
+ * the shared pagination contract.
+ */
+export const searchUsersSchema = {
+  query: paginationQuery.extend({
+    search: z.string().trim().min(2, 'Enter at least 2 characters').max(120),
+  }),
+};
+
 export const deleteAccountSchema = {
   body: z
     .object({ password: z.string().max(128).optional() })
@@ -58,6 +71,7 @@ export default {
   updateProfileSchema,
   updateSettingsSchema,
   publicProfileSchema,
+  searchUsersSchema,
   deleteAccountSchema,
   userIdSchema,
 };

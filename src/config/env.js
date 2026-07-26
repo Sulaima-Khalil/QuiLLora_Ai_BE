@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import { PAYMENT_PROVIDER as PROVIDER_SAFEPAY } from '../constants/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -87,6 +88,43 @@ const schema = z.object({
   GITHUB_CLIENT_SECRET: z.string().optional(),
   GITHUB_CALLBACK_URL: z.string().optional(),
 
+  /*
+   * Safepay — the payment provider.
+   *
+   * All four credentials are required together before billing switches on;
+   * any one missing leaves the API reporting "payment not configured" rather
+   * than half-attempting a charge. They are read here and never leave the
+   * server: no route serialises them, and the checkout response carries a URL
+   * and nothing else.
+   *
+   * Names match Safepay's own vocabulary (`@sfpy/node-sdk` takes exactly
+   * `environment`, `apiKey`, `v1Secret` and `webhookSecret`).
+   */
+  SAFEPAY_ENVIRONMENT: z.enum(['sandbox', 'production', 'development']).optional(),
+  /** Merchant API key, `sec_…`, from Dashboard > Developers > API Keys. */
+  SAFEPAY_API_KEY: z.string().optional(),
+  /** Merchant secret, sent as `X-SFPY-MERCHANT-SECRET` on server-to-server calls. */
+  SAFEPAY_V1_SECRET: z.string().optional(),
+  /** Shared secret for the HMAC-SHA512 webhook signature, from Developers > Endpoints. */
+  SAFEPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  /*
+   * Safepay recurring plan tokens (`plan_…`), one per plan and cycle.
+   *
+   * The amount and currency of a subscription live on the Safepay plan, not
+   * here and certainly not in a request body: a checkout names a plan token
+   * and Safepay charges whatever that plan says. That is the strongest form
+   * of "the client cannot control the price" available — this server cannot
+   * control it either.
+   *
+   * Left unset by default. Inventing placeholders would let a checkout be
+   * attempted against plans that do not exist.
+   */
+  SAFEPAY_PLAN_PRO_MONTHLY: z.string().optional(),
+  SAFEPAY_PLAN_PRO_YEARLY: z.string().optional(),
+  SAFEPAY_PLAN_BUSINESS_MONTHLY: z.string().optional(),
+  SAFEPAY_PLAN_BUSINESS_YEARLY: z.string().optional(),
+
   UPLOAD_DIR: z.string().default('uploads'),
   SERVE_UPLOADS: boolish(true),
 
@@ -118,6 +156,24 @@ const corsOrigins = [...new Set([raw.CLIENT_URL, ...raw.CORS_ORIGINS])];
 
 const smtpConfigured = Boolean(raw.SMTP_HOST && raw.SMTP_USER && raw.SMTP_PASSWORD);
 
+const clientUrl = raw.CLIENT_URL.replace(/\/$/, '');
+
+/**
+ * Safepay is on only when every credential is present.
+ *
+ * All four are load-bearing and none substitutes for another: the API key
+ * identifies the merchant on the event envelope, the v1 secret authenticates
+ * server-to-server calls, and the webhook secret is the only thing standing
+ * between a forged POST and a free Business plan. Three out of four is not a
+ * working integration, so it is treated as none.
+ */
+const safepayConfigured = Boolean(
+  raw.SAFEPAY_ENVIRONMENT &&
+    raw.SAFEPAY_API_KEY &&
+    raw.SAFEPAY_V1_SECRET &&
+    raw.SAFEPAY_WEBHOOK_SECRET,
+);
+
 export const config = Object.freeze({
   env: raw.NODE_ENV,
   isProduction,
@@ -143,7 +199,7 @@ export const config = Object.freeze({
   }),
 
   client: Object.freeze({
-    url: raw.CLIENT_URL.replace(/\/$/, ''),
+    url: clientUrl,
     corsOrigins,
   }),
 
@@ -188,6 +244,54 @@ export const config = Object.freeze({
       clientId: raw.GITHUB_CLIENT_ID,
       clientSecret: raw.GITHUB_CLIENT_SECRET,
       callbackUrl: raw.GITHUB_CALLBACK_URL,
+    }),
+  }),
+
+  /**
+   * Billing. `provider` being null is what makes the API answer "payment is
+   * not available"; the secrets stay on this object and are never serialized
+   * to a client.
+   */
+  payments: Object.freeze({
+    provider: safepayConfigured ? PROVIDER_SAFEPAY : null,
+    configured: safepayConfigured,
+
+    safepay: Object.freeze({
+      configured: safepayConfigured,
+      environment: raw.SAFEPAY_ENVIRONMENT ?? null,
+      apiKey: raw.SAFEPAY_API_KEY ?? null,
+      v1Secret: raw.SAFEPAY_V1_SECRET ?? null,
+      webhookSecret: raw.SAFEPAY_WEBHOOK_SECRET ?? null,
+
+      /**
+       * `{ [planId]: { monthly, yearly } }`, values null until configured.
+       *
+       * A missing token is a visible null rather than an undefined lookup, so
+       * "Pro yearly is not set up" is a clean 503 instead of a checkout URL
+       * pointing at a plan that does not exist. The free plan is absent by
+       * design: it is never bought.
+       */
+      planIds: Object.freeze({
+        pro: Object.freeze({
+          monthly: raw.SAFEPAY_PLAN_PRO_MONTHLY ?? null,
+          yearly: raw.SAFEPAY_PLAN_PRO_YEARLY ?? null,
+        }),
+        business: Object.freeze({
+          monthly: raw.SAFEPAY_PLAN_BUSINESS_MONTHLY ?? null,
+          yearly: raw.SAFEPAY_PLAN_BUSINESS_YEARLY ?? null,
+        }),
+      }),
+
+      /**
+       * Where Safepay returns the shopper's browser.
+       *
+       * Derived from CLIENT_URL rather than configured separately: two URLs
+       * that must agree with the frontend's routes are two URLs that can drift
+       * from them. Neither destination grants anything — the success page only
+       * re-reads the server's answer.
+       */
+      redirectUrl: `${clientUrl}/dashboard/upgrade/success`,
+      cancelUrl: `${clientUrl}/dashboard/upgrade?checkout=cancelled`,
     }),
   }),
 

@@ -10,6 +10,10 @@ mongoose.set('strictQuery', 'throw');
 
 let connectionPromise = null;
 
+// Distinguishes a deliberate close from a dropped socket, so shutdown does not
+// log a reconnect warning for a connection nobody wants back.
+let shuttingDown = false;
+
 /**
  * Connects to MongoDB, reusing the existing connection if one is already open.
  * Idempotent, so tests and the server can both call it safely.
@@ -26,6 +30,21 @@ export const connectDatabase = async (uri = config.db.uri) => {
       // Indexes are created explicitly by syncIndexes() rather than implicitly
       // on every model touch, which is a known production foot-gun.
       autoIndex: false,
+
+      // Recycle sockets before an idle proxy or Atlas silently drops them,
+      // and notice a lost primary quickly rather than on the next query.
+      maxIdleTimeMS: 60_000,
+      heartbeatFrequencyMS: 10_000,
+      socketTimeoutMS: 45_000,
+
+      // Let the driver replay a single operation across a brief failover
+      // instead of surfacing a transient network error to the caller.
+      retryWrites: true,
+      retryReads: true,
+
+      // Queries issued while the connection is down fail fast with a clear
+      // error rather than hanging for the 10s default buffer window.
+      bufferTimeoutMS: 5_000,
     })
     .then((instance) => {
       logger.info(`MongoDB connected: ${instance.connection.host}/${instance.connection.name}`);
@@ -56,17 +75,39 @@ export const syncIndexes = async () => {
 /** Closes the connection — used by graceful shutdown and test teardown. */
 export const disconnectDatabase = async () => {
   connectionPromise = null;
-  if (mongoose.connection.readyState === 0) return;
+  shuttingDown = true;
+
+  if (mongoose.connection.readyState === 0) {
+    shuttingDown = false;
+    return;
+  }
+
   await mongoose.connection.close();
   logger.info('MongoDB connection closed');
+  shuttingDown = false;
 };
 
 mongoose.connection.on('error', (error) => {
   logger.error(`MongoDB connection error: ${error.message}`);
 });
 
+/**
+ * The driver reconnects on its own, so these listeners are for visibility and
+ * for keeping `connectionPromise` honest.
+ *
+ * Dropping the cached promise matters: it resolved against a connection that
+ * is now closed, so leaving it in place would make `connectDatabase()` hand
+ * back a dead connection instead of dialling again.
+ */
 mongoose.connection.on('disconnected', () => {
-  logger.warn('MongoDB disconnected');
+  if (!shuttingDown) {
+    connectionPromise = null;
+    logger.warn('MongoDB disconnected — the driver will keep retrying');
+  }
+});
+
+mongoose.connection.on('reconnected', () => {
+  logger.info('MongoDB reconnected');
 });
 
 export default connectDatabase;

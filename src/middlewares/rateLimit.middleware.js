@@ -1,5 +1,6 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import config from '../config/env.js';
+import { PAYMENT_WEBHOOK_PATH } from '../constants/index.js';
 import ApiError from '../utils/ApiError.js';
 
 /** Shared 429 response so limiters match the global error envelope. */
@@ -15,11 +16,36 @@ const base = {
   skip: () => config.isTest,
 };
 
-/** Broad limiter applied to every API route. */
+/** True for the payment webhook, which carries its own limiter instead. */
+const isPaymentWebhook = (req) =>
+  (req.originalUrl || '').split('?')[0] === PAYMENT_WEBHOOK_PATH;
+
+/**
+ * Broad limiter applied to every API route except the payment webhook.
+ *
+ * Providers retry aggressively after a failure, and a burst of retries hitting
+ * the general per-IP budget would throttle exactly the events needed to fix a
+ * subscription. The exemption is narrow — one exact path — and that path is
+ * covered by `webhookLimiter` below, so it is never unlimited.
+ */
 export const apiLimiter = rateLimit({
   ...base,
   windowMs: config.rateLimit.windowMs,
   limit: config.rateLimit.max,
+  skip: (req) => base.skip() || isPaymentWebhook(req),
+});
+
+/**
+ * Generous limiter for the payment webhook.
+ *
+ * Sized for a provider replaying a backlog, not for a browser. Still bounded,
+ * so an unauthenticated public path cannot be used to exhaust the process —
+ * signature verification will reject the contents anyway, but that costs CPU.
+ */
+export const webhookLimiter = rateLimit({
+  ...base,
+  windowMs: 60 * 1000,
+  limit: 300,
 });
 
 /**

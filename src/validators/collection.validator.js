@@ -22,6 +22,13 @@ export const updateCollectionSchema = {
     }),
 };
 
+/** GET /collections?search= — optional narrowing for the global search bar. */
+export const listCollectionsSchema = {
+  query: z.object({
+    search: z.string().trim().max(120).optional(),
+  }),
+};
+
 export const collectionIdSchema = { params: idParam };
 
 export const collectionArticleSchema = {
@@ -44,6 +51,7 @@ export const bookmarkParamSchema = {
 export default {
   createCollectionSchema,
   updateCollectionSchema,
+  listCollectionsSchema,
   collectionIdSchema,
   collectionArticleSchema,
   addArticleSchema,

@@ -6,8 +6,14 @@ const ARTICLE_POPULATE = {
   populate: { path: 'author', select: 'name avatar role' },
 };
 
-export const findAllByOwner = (owner, { populateArticles = false } = {}) => {
-  const query = Collection.find({ owner }).sort({ createdAt: 1 });
+export const findAllByOwner = (owner, { populateArticles = false, search } = {}) => {
+  const filter = { owner };
+
+  // Owner-scoped first, so a search can only ever reach collections the caller
+  // already owns. The service builds and escapes the pattern.
+  if (search) filter.$or = [{ name: search }, { description: search }];
+
+  const query = Collection.find(filter).sort({ createdAt: 1 });
   if (populateArticles) query.populate(ARTICLE_POPULATE);
   return query.exec();
 };

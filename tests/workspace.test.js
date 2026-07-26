@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { API, PASSWORDS, app, asUser, createArticle, registerUser, request } from './helpers.js';
+import { API, PASSWORDS, app, asUser, createArticle, grantPlan, registerUser, request } from './helpers.js';
 
 describe('Collections and bookmarks', () => {
   it('returns an empty state for a new account', async () => {
@@ -149,7 +149,9 @@ describe('Team', () => {
   });
 
   it('invites a member, defaulting to Editor with a formatted join date', async () => {
-    const { accessToken } = await registerUser();
+    const { accessToken, user } = await registerUser();
+    // Team seats are a paid entitlement; Starter is single-user.
+    await grantPlan(user.id);
 
     const response = await asUser(accessToken)
       .post(`${API}/team`)
@@ -165,7 +167,9 @@ describe('Team', () => {
   });
 
   it('derives a name from the email when none is supplied', async () => {
-    const { accessToken } = await registerUser();
+    const { accessToken, user } = await registerUser();
+    // Team seats are a paid entitlement; Starter is single-user.
+    await grantPlan(user.id);
 
     const response = await asUser(accessToken)
       .post(`${API}/team`)
@@ -176,7 +180,8 @@ describe('Team', () => {
   });
 
   it('rejects inviting the same person twice', async () => {
-    const { accessToken } = await registerUser();
+    const { accessToken, user } = await registerUser();
+    await grantPlan(user.id);
 
     await asUser(accessToken).post(`${API}/team`).send({ email: 'dup@inkflow.ai' }).expect(201);
     await asUser(accessToken).post(`${API}/team`).send({ email: 'dup@inkflow.ai' }).expect(409);
@@ -189,7 +194,8 @@ describe('Team', () => {
   });
 
   it('updates a role and removes a member', async () => {
-    const { accessToken } = await registerUser();
+    const { accessToken, user } = await registerUser();
+    await grantPlan(user.id);
 
     const invited = await asUser(accessToken)
       .post(`${API}/team`)
@@ -212,7 +218,8 @@ describe('Team', () => {
   });
 
   it('rejects an unknown role', async () => {
-    const { accessToken } = await registerUser();
+    const { accessToken, user } = await registerUser();
+    await grantPlan(user.id);
 
     const invited = await asUser(accessToken)
       .post(`${API}/team`)
@@ -228,6 +235,8 @@ describe('Team', () => {
   it('keeps each workspace\'s team separate', async () => {
     const owner = await registerUser();
     const other = await registerUser();
+    await grantPlan(owner.user.id);
+    await grantPlan(other.user.id);
 
     await asUser(owner.accessToken).post(`${API}/team`).send({ email: 'a@inkflow.ai' }).expect(201);
 

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { AI_LENGTHS, DEFAULT_AI_LENGTH, DEFAULT_TONE, TONES } from '../constants/index.js';
 import { countWords, htmlToText, readingEase } from '../utils/readTime.js';
 import { sanitizeArticleHtml, stripTags } from '../helpers/sanitizeHtml.helper.js';
+import billingService from './billing.service.js';
 
 /**
  * AI Writer generation service.
@@ -226,4 +227,52 @@ export const generateInsights = ({ content = '', topic = '', tone = DEFAULT_TONE
   };
 };
 
-export default { generateArticle, generateParagraph, generateInsights };
+/* ---------------------------------------------------------------------------
+ * Metered entry points
+ *
+ * The functions above are pure: given a payload they compose text and return
+ * it. These wrappers add the plan quota around them, and they are what the
+ * controller calls.
+ *
+ * The order is reserve, then generate, then release on failure. Generating
+ * first and counting afterwards would let two simultaneous requests both pass
+ * the check and overshoot the limit; claiming the slot first makes the
+ * database the arbiter. The `catch` hands the slot back so work that produced
+ * nothing does not spend the user's day.
+ *
+ * Only these two count. `generateInsights` analyses text the author already
+ * wrote — word counts, readability, suggestions — and produces no new prose,
+ * and `options` returns static lists; neither is a generation.
+ * ------------------------------------------------------------------------ */
+
+/** Metered `generateArticle`. */
+export const generateArticleFor = async (userId, payload) => {
+  await billingService.consumeAiGeneration(userId);
+
+  try {
+    return generateArticle(payload);
+  } catch (error) {
+    await billingService.releaseAiGeneration(userId);
+    throw error;
+  }
+};
+
+/** Metered `generateParagraph`. */
+export const generateParagraphFor = async (userId, payload) => {
+  await billingService.consumeAiGeneration(userId);
+
+  try {
+    return generateParagraph(payload);
+  } catch (error) {
+    await billingService.releaseAiGeneration(userId);
+    throw error;
+  }
+};
+
+export default {
+  generateArticleFor,
+  generateParagraphFor,
+  generateArticle,
+  generateParagraph,
+  generateInsights,
+};

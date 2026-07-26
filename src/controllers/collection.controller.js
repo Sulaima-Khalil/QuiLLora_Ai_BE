@@ -27,7 +27,9 @@ export const toggleBookmark = asyncHandler(async (req, res) => {
 });
 
 export const listCollections = asyncHandler(async (req, res) => {
-  const collections = await collectionService.listCollections(req.user._id);
+  const { search } = req.validatedQuery ?? req.query ?? {};
+  const collections = await collectionService.listCollections(req.user._id, { search });
+
   return sendSuccess(res, { message: 'Collections', data: { collections } });
 });
 

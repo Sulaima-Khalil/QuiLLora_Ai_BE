@@ -9,6 +9,7 @@ import cookieParser from 'cookie-parser';
 import config from './config/env.js';
 import corsOptions from './config/cors.js';
 import routes from './routes/index.js';
+import { PAYMENT_WEBHOOK_PATH } from './constants/index.js';
 import { apiLimiter } from './middlewares/rateLimit.middleware.js';
 import { mongoSanitize } from './middlewares/sanitize.middleware.js';
 import { errorHandler, notFoundHandler } from './middlewares/error.middleware.js';
@@ -44,7 +45,25 @@ app.use(cors(corsOptions));
 
 /* ---------------------------------------------------------------------------
  * Parsing
- * ------------------------------------------------------------------------ */
+ *
+ * The webhook path is parsed FIRST, and as raw bytes.
+ *
+ * Payment providers sign the exact bytes they sent. `express.json()` parses
+ * and discards them, and re-serialising the object afterwards reorders keys
+ * and drops whitespace, so every signature check would fail. Mounting the raw
+ * parser ahead of the JSON one leaves `req.body` as a Buffer for that one path.
+ *
+ * body-parser sets `req._body` once it has consumed the stream, and every
+ * later parser returns early when it sees that flag — so `express.json()`
+ * below skips this path without needing to know it exists. Ordering is the
+ * whole mechanism: moving this line after the JSON parser silently breaks
+ * signature verification.
+ *
+ * Safepay signs the JSON of the event's `data` object with HMAC-SHA512, and
+ * safepay.service.js parses these bytes itself to reproduce it — so what is
+ * hashed is what actually arrived, not something a body parser rebuilt.
+ */
+app.use(PAYMENT_WEBHOOK_PATH, express.raw({ type: '*/*', limit: '1mb' }));
 
 // 2MB accommodates long TipTap documents while still bounding memory per request.
 app.use(express.json({ limit: '2mb' }));
@@ -94,6 +113,12 @@ if (config.uploads.serve) {
  * API
  * ------------------------------------------------------------------------ */
 
+/*
+ * The general limiter deliberately skips the webhook path — see the `skip` in
+ * rateLimit.middleware.js. A provider retrying a burst of events must not be
+ * throttled into a stuck subscription. The path is not left unlimited: the
+ * route itself carries `webhookLimiter`, which is generous but finite.
+ */
 app.use('/api', apiLimiter, routes);
 
 /** Root banner, so hitting the bare host is informative rather than a 404. */

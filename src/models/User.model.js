@@ -1,8 +1,14 @@
 import mongoose from 'mongoose';
 import {
   AUTH_PROVIDER,
+  BILLING_CYCLE,
+  BILLING_CYCLES,
+  DEFAULT_PLAN_ID,
   DEFAULT_TONE,
   OAUTH_PROVIDERS,
+  PLAN_IDS,
+  SUBSCRIPTION_STATUS,
+  SUBSCRIPTION_STATUSES,
   TONES,
 } from '../constants/index.js';
 import { hashPassword, verifyPassword } from '../helpers/password.helper.js';
@@ -22,6 +28,83 @@ const settingsSchema = new Schema(
     twoFactor: { type: Boolean, default: false },
     editorialUpdates: { type: Boolean, default: true },
     analyticsReports: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
+/**
+ * The user's plan, as the server understands it.
+ *
+ * Embedded for the same reason as settings: it is read with the user on every
+ * authenticated request and never queried on its own. This document — not the
+ * browser — is what decides which plan someone is on.
+ *
+ * `pendingPlanId` records an upgrade the user asked for but has not paid for.
+ * It grants nothing; it exists so the UI can say "waiting on payment" honestly
+ * and so the request survives a reload or a different device.
+ */
+const subscriptionSchema = new Schema(
+  {
+    planId: { type: String, enum: PLAN_IDS, default: DEFAULT_PLAN_ID },
+    status: { type: String, enum: SUBSCRIPTION_STATUSES, default: SUBSCRIPTION_STATUS.ACTIVE },
+    cycle: { type: String, enum: BILLING_CYCLES, default: BILLING_CYCLE.MONTHLY },
+    startedAt: { type: Date, default: Date.now },
+    // Null while on the free plan: nothing renews.
+    currentPeriodEnd: { type: Date, default: null },
+
+    /**
+     * Set when a plan is cancelled but paid up to `currentPeriodEnd`.
+     *
+     * The normal shape of a provider cancellation: access continues to the end
+     * of the period already paid for. Set by the `subscription.canceled`
+     * webhook when the period Safepay already collected for has not run out;
+     * `loadUser` drops the plan once it has.
+     */
+    cancelAtPeriodEnd: { type: Boolean, default: false },
+
+    pendingPlanId: { type: String, enum: [...PLAN_IDS, null], default: null },
+    pendingCycle: { type: String, enum: [...BILLING_CYCLES, null], default: null },
+    pendingSince: { type: Date, default: null },
+
+    /**
+     * The opaque reference handed to Safepay when the checkout was opened.
+     *
+     * Server-generated, never accepted from a request, and `select: false` so
+     * it cannot be read back out through the API and replayed.
+     */
+    pendingReference: { type: String, default: null, select: false },
+
+    /**
+     * The Safepay plan token (`plan_…`) the pending checkout was opened
+     * against.
+     *
+     * This is the hinge of the claim rule in billing.service.js. A Safepay
+     * subscription webhook carries no reference to the checkout that started
+     * it, so the pending intent is the only evidence that this account asked
+     * to buy this plan — and matching on the resolved provider token rather
+     * than on our own plan id means a forged `planId` cannot reach it.
+     */
+    pendingProviderPlanId: { type: String, default: null, select: false },
+
+    /**
+     * Which payment provider owns this subscription, once one exists.
+     * Any provider customer/subscription ids belong here and are `select:
+     * false` so they never ride along on an ordinary user read.
+     */
+    provider: { type: String, default: null },
+    providerCustomerId: { type: String, default: null, select: false },
+    providerSubscriptionId: { type: String, default: null, select: false },
+
+    /**
+     * `data.updated_at` of the newest provider event already applied.
+     *
+     * Webhook delivery is not ordered. Without this, a `subscription.created`
+     * that took the slow path could land after the payment that activated the
+     * plan and knock the user back to "awaiting payment"; a re-sent
+     * `subscription.canceled` could undo a resumption. Older events are
+     * recorded and skipped.
+     */
+    providerUpdatedAt: { type: Date, default: null, select: false },
   },
   { _id: false },
 );
@@ -100,6 +183,8 @@ const userSchema = new Schema(
       default: AUTH_PROVIDER.LOCAL,
     },
     oauthAccounts: { type: [oauthAccountSchema], default: [] },
+
+    subscription: { type: subscriptionSchema, default: () => ({}) },
 
     // ---- Single-use token digests (never the raw tokens) ----
     emailVerificationToken: { type: String, select: false },

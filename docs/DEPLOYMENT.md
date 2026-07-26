@@ -106,6 +106,82 @@ keep local uploads.
 
 ---
 
+## Vercel
+
+The API runs as a single serverless function: `api/index.js` re-exports the
+Express app from `src/app.js` (which never calls `app.listen()`), and
+`vercel.json` rewrites every `/api/*` request to it. `src/server.js` — the
+file that calls `app.listen()`, connects to MongoDB on boot, and starts cron
+jobs — is not part of this path; `npm start` still runs it unchanged for
+local development or any non-serverless host.
+
+**Framework preset**: Other
+**Build command**: none required (leave blank, or `npm ci` if Vercel insists on one)
+**Output directory**: not applicable
+**Root directory**: the repository root (where `vercel.json` and `api/` live)
+
+Add every variable from `.env.example` in the project's Environment Variables
+settings — the same names used everywhere else in this document, including:
+
+```
+NODE_ENV
+MONGO_URI
+JWT_ACCESS_SECRET
+JWT_REFRESH_SECRET
+CLIENT_URL
+COOKIE_SECURE
+COOKIE_SAME_SITE
+SAFEPAY_ENVIRONMENT
+SAFEPAY_API_KEY
+SAFEPAY_V1_SECRET
+SAFEPAY_WEBHOOK_SECRET
+SAFEPAY_PLAN_PRO_MONTHLY
+SAFEPAY_PLAN_PRO_YEARLY
+SAFEPAY_PLAN_BUSINESS_MONTHLY
+SAFEPAY_PLAN_BUSINESS_YEARLY
+```
+
+Do not set `PORT` — Vercel's Node runtime does not use it, and nothing in the
+serverless path reads it.
+
+The production URL Vercel assigns follows `https://<project-name>.vercel.app`
+(or a custom domain, if one is attached). The Safepay webhook URL is that
+same origin plus the existing path:
+
+```
+https://<vercel-backend-domain>/api/v1/billing/webhook
+```
+
+Register that exact URL in Safepay's dashboard, not the frontend's domain —
+they are two different Vercel projects.
+
+**Known limitations of this deployment path**, neither of which this change
+attempts to fix:
+
+- **Uploads.** `upload.middleware.js` writes cover images and avatars to
+  local disk via `multer.diskStorage`, and `app.js` serves them back with
+  `express.static`. Vercel's serverless filesystem is read-only outside
+  `/tmp`, and `/tmp` does not persist across invocations or share across
+  instances — an upload can appear to succeed and then 404 on the very next
+  request. This is the same ephemeral-filesystem limitation already
+  documented under [Uploads](#uploads) for Render's free tier and Heroku; it
+  is a harder blocker here because there is no volume to mount. Fixing it
+  means swapping the storage engine for S3/Cloudinary/R2, which is a real
+  feature change and out of scope for a deployment-only pass.
+- **Cron jobs.** `startCronJobs()` is only called from `src/server.js`, which
+  this path never runs — a serverless function has no persistent process for
+  `node-cron` to run inside. Scheduled maintenance jobs (`ENABLE_CRON`)
+  silently do not run under this deployment path. Running them requires
+  either a host that keeps a process alive (Render, Railway, a VPS) or
+  moving that logic to [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs)
+  calling a dedicated route — also out of scope here.
+- **Request duration.** Vercel's Node functions have a default execution
+  time limit (10s on Hobby; configurable higher on Pro/Enterprise via
+  `maxDuration`). Long-running AI generation requests should be checked
+  against whatever plan this project runs on.
+
+---
+
 ## Docker
 
 ```dockerfile
