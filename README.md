@@ -1,4 +1,4 @@
-# InkFlow AI — Backend
+# QuiLLOra AI — Backend
 
 Production REST API for the [InkFlow AI](https://github.com/SulaimaKhalil785/ArticApp) editorial
 workspace. Node.js, Express 5, MongoDB and Mongoose, with cookie-based JWT
@@ -87,6 +87,19 @@ running it twice will not create duplicates.
 Every variable is documented inline in [`.env.example`](.env.example). Only
 three are required — the server refuses to boot without them, with a message
 naming what is missing:
+
+### AI Assistant setup
+
+To enable the Write page assistant, add a server-only Groq key:
+
+```bash
+cp .env.example .env
+# edit .env and set GROQ_API_KEY=your_groq_api_key_here
+```
+
+Do not put the key in any VITE_ variable or frontend source file. The backend
+reads `GROQ_API_KEY` directly from the server environment and exposes the
+assistant through `POST /api/v1/ai/assistant`.
 
 | Variable             | Required | Purpose                                          |
 | -------------------- | -------- | ------------------------------------------------ |

@@ -58,7 +58,7 @@ const schema = z.object({
 
   BCRYPT_SALT_ROUNDS: intish(12),
 
-  CLIENT_URL: z.string().url().default('http://localhost:5173'),
+  CLIENT_URL: z.string().trim().url().default('http://localhost:5173'),
   CORS_ORIGINS: csv(),
 
   COOKIE_DOMAIN: z.string().optional(),
@@ -83,6 +83,7 @@ const schema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CALLBACK_URL: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
 
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
@@ -238,6 +239,10 @@ export const config = Object.freeze({
       clientId: raw.GOOGLE_CLIENT_ID,
       clientSecret: raw.GOOGLE_CLIENT_SECRET,
       callbackUrl: raw.GOOGLE_CALLBACK_URL,
+    }),
+    groq: Object.freeze({
+      apiKey: raw.GROQ_API_KEY ?? null,
+      configured: Boolean(raw.GROQ_API_KEY),
     }),
     github: Object.freeze({
       configured: Boolean(raw.GITHUB_CLIENT_ID && raw.GITHUB_CLIENT_SECRET),

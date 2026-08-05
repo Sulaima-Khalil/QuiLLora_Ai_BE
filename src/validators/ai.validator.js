@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { AI_LENGTHS, TONES } from '../constants/index.js';
 
+const assistantActions = ['generateIdeas', 'writeParagraph', 'improveWriting', 'summarize', 'customPrompt'];
+
 /** AI Writer schemas — fields match the intake form in pages/AIWriter.jsx. */
 
 export const generateArticleSchema = {
@@ -32,4 +34,14 @@ export const insightsSchema = {
   }),
 };
 
-export default { generateArticleSchema, generateParagraphSchema, insightsSchema };
+export const assistantSchema = {
+  body: z.object({
+    action: z.enum(assistantActions, { errorMap: () => ({ message: 'Unsupported AI action' }) }),
+    prompt: z.string().trim().min(1, 'Prompt is required').max(4000),
+    selectedText: z.string().max(20_000).optional().default(''),
+    documentTitle: z.string().trim().max(200).optional().default('Untitled document'),
+    documentContent: z.string().max(80_000).optional().default(''),
+  }),
+};
+
+export default { generateArticleSchema, generateParagraphSchema, insightsSchema, assistantSchema };

@@ -7,6 +7,7 @@ import {
   generateArticleSchema,
   generateParagraphSchema,
   insightsSchema,
+  assistantSchema,
 } from '../../validators/ai.validator.js';
 
 const router = Router();
@@ -19,5 +20,6 @@ router.get('/options', aiController.options);
 router.post('/generate', aiLimiter, validate(generateArticleSchema), aiController.generate);
 router.post('/paragraph', aiLimiter, validate(generateParagraphSchema), aiController.generateParagraph);
 router.post('/insights', validate(insightsSchema), aiController.insights);
+router.post('/assistant', aiLimiter, validate(assistantSchema), aiController.assistant);
 
 export default router;

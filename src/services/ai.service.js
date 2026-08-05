@@ -1,8 +1,11 @@
 import crypto from 'node:crypto';
+import Groq from 'groq-sdk';
+import config from '../config/env.js';
 import { AI_LENGTHS, DEFAULT_AI_LENGTH, DEFAULT_TONE, TONES } from '../constants/index.js';
 import { countWords, htmlToText, readingEase } from '../utils/readTime.js';
 import { sanitizeArticleHtml, stripTags } from '../helpers/sanitizeHtml.helper.js';
 import billingService from './billing.service.js';
+import ApiError from '../utils/ApiError.js';
 
 /**
  * AI Writer generation service.
@@ -59,6 +62,32 @@ const PULL_QUOTES = [
 const PARAGRAPH_COUNT = { Short: 1, Medium: 3, Long: 5 };
 
 const capitalize = (value) => (value ? value[0].toUpperCase() + value.slice(1) : value);
+
+const ASSISTANT_LIMIT_PER_USER = 12;
+const assistantRequestCache = new Map();
+
+const getAssistantClient = () => {
+  const apiKey = process.env.GROQ_API_KEY ?? config.oauth?.groq?.apiKey;
+  if (!apiKey) throw ApiError.internal('Groq AI API is not configured on the server');
+  return new Groq({ apiKey });
+};
+
+const getAssistantUsageKey = (userId) => `assistant:${userId}`;
+
+const consumeAssistantRequest = (userId) => {
+  const key = getAssistantUsageKey(userId);
+  const current = assistantRequestCache.get(key) ?? 0;
+  if (current >= ASSISTANT_LIMIT_PER_USER) {
+    throw ApiError.tooManyRequests('You have reached the assistant request limit for this hour.');
+  }
+  assistantRequestCache.set(key, current + 1);
+};
+
+const resetAssistantUsage = () => {
+  assistantRequestCache.clear();
+};
+
+setInterval(resetAssistantUsage, 60 * 60 * 1000);
 
 /**
  * Deterministic pseudo-random source.
@@ -269,10 +298,78 @@ export const generateParagraphFor = async (userId, payload) => {
   }
 };
 
+export const generateAssistantResponse = async (userId, payload = {}) => {
+  const { action, prompt, selectedText = '', documentTitle = 'Untitled document', documentContent = '' } = payload;
+
+  if (!action || !prompt?.trim()) {
+    throw ApiError.badRequest('Please provide an action and a prompt.');
+  }
+
+  consumeAssistantRequest(userId);
+
+  try {
+    const client = getAssistantClient();
+
+    const promptText = [
+      `You are a writing assistant for an editor app.`,
+      `Action: ${action}`,
+      `Document title: ${documentTitle || 'Untitled document'}`,
+      `User prompt: ${prompt}`,
+      `Selected text: ${selectedText || '(none selected)'}`,
+      `Document content: ${documentContent || '(empty document)'}`,
+      'Return a concise, useful response tailored to the request.',
+      action === 'summarize' ? 'If no selected text exists, explain that the user should select text first.' : '',
+      action === 'improveWriting' ? 'Focus on clarity, flow, and tone.' : '',
+      action === 'generateIdeas' ? 'Provide a numbered list of ideas with short explanations.' : '',
+      action === 'writeParagraph' ? 'Write a polished paragraph only.' : '',
+      action === 'customPrompt' ? 'Answer the prompt directly and keep it practical.' : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const completion = await client.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      temperature: 0.7,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a writing assistant for an editor app. Return concise, useful text tailored to the request.',
+        },
+        {
+          role: 'user',
+          content: promptText,
+        },
+      ],
+    });
+
+    const text = completion?.choices?.[0]?.message?.content?.trim();
+
+    if (!text?.trim()) {
+      throw ApiError.internal('Groq returned an empty response.');
+    }
+
+    return text.trim();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+
+    const message = String(error?.message || 'The AI assistant could not generate a response right now.');
+    const isQuotaError = /quota|rate limit|free tier|429|retry|overloaded|too many/i.test(message);
+
+    if (isQuotaError) {
+      throw ApiError.tooManyRequests(
+        'The AI service is temporarily unavailable because its quota has been exhausted. Please try again in a few minutes.',
+      );
+    }
+
+    throw ApiError.internal(`Groq request failed: ${message}`);
+  }
+};
+
 export default {
   generateArticleFor,
   generateParagraphFor,
   generateArticle,
   generateParagraph,
   generateInsights,
+  generateAssistantResponse,
 };
