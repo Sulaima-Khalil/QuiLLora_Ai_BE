@@ -39,4 +39,9 @@ export const options = asyncHandler(async (_req, res) =>
   }),
 );
 
-export default { generate, generateParagraph, insights, options };
+export const assistant = asyncHandler(async (req, res) => {
+  const text = await aiService.generateAssistantResponse(req.user._id, req.body);
+  return res.status(200).json({ text });
+});
+
+export default { generate, generateParagraph, insights, options, assistant };
