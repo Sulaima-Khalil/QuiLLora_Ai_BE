@@ -1,5 +1,5 @@
 import app from '../src/app.js';
-import config from '../src/config/env.js';
+import { isOriginAllowed } from '../src/config/cors.js';
 import { connectDatabase } from '../src/database/connect.js';
 import logger from '../src/utils/logger.js';
 
@@ -49,7 +49,7 @@ const redact = (message = '') =>
  */
 const applyCorsHeaders = (req, res) => {
   const origin = req.headers?.origin;
-  if (!origin || !config.client.corsOrigins.includes(origin)) return;
+  if (!origin || !isOriginAllowed(origin)) return;
 
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Credentials', 'true');
